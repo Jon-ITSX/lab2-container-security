@@ -177,11 +177,18 @@ jobs:
 
       # Fail fast if required secrets are absent rather than failing later
       # with a cryptic authentication error — same pattern as Lab 1.
+      # Secrets are passed as env vars to avoid inline expansion issues:
+      # GCP_SA_KEY is a multiline JSON — expanding it directly in a shell
+      # command causes `test` to see multiple arguments and fail.
       - name: Verify required secrets
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
-          test -n "${{ secrets.GCP_SA_KEY }}"          || (echo "Missing secret: GCP_SA_KEY"          && exit 1)
-          test -n "${{ secrets.COSIGN_PRIVATE_KEY }}"  || (echo "Missing secret: COSIGN_PRIVATE_KEY"  && exit 1)
-          test -n "${{ secrets.COSIGN_PASSWORD }}"     || (echo "Missing secret: COSIGN_PASSWORD"     && exit 1)
+          test -n "$GCP_SA_KEY"         || (echo "Missing secret: GCP_SA_KEY"         && exit 1)
+          test -n "$COSIGN_PRIVATE_KEY" || (echo "Missing secret: COSIGN_PRIVATE_KEY" && exit 1)
+          test -n "$COSIGN_PASSWORD"    || (echo "Missing secret: COSIGN_PASSWORD"    && exit 1)
 
       - name: Download image artifact
         uses: actions/download-artifact@v4
