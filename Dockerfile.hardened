@@ -1,0 +1,48 @@
+# =============================================================================
+# BUILDER
+# Installs Python dependencies in an isolated stage.
+# pip and all build tooling are excluded from the final runtime image,
+# eliminating them as an attack vector if the container is compromised.
+# =============================================================================
+FROM python:3.12-slim-bookworm AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+
+# Install to an explicit prefix so the output can be copied cleanly
+# to the runtime stage without carrying over pip itself.
+RUN pip install --no-cache-dir --prefix=/build/deps -r requirements.txt
+
+# =============================================================================
+# RUNTIME
+# Minimal image: no pip, no build tools, non-root user from the start.
+# The non-root identity is created before any files are written so that
+# ownership is correct from the first COPY — no chmod steps needed.
+# =============================================================================
+FROM python:3.12-slim-bookworm
+
+# Create a dedicated non-root identity early so all subsequent layers
+# can be owned by this user without extra permission-fixup steps.
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+WORKDIR /app
+
+# Copy only the installed packages from the builder — pip is not present
+# in this stage and cannot be used to install further tooling at runtime.
+COPY --from=builder /build/deps /usr/local
+
+# Copy app code with correct ownership before switching user.
+COPY --chown=appuser:appgroup app.py .
+
+# Drop privileges before runtime. All subsequent layers run as appuser.
+USER appuser
+
+# Documented runtime port for orchestration manifests.
+EXPOSE 5000
+
+# Liveness check so orchestrators can detect a stuck or crashed container.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/')" || exit 1
+
+# Execute without a shell to eliminate command-injection surface.
+CMD ["python", "app.py"]

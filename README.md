@@ -221,7 +221,7 @@ Utfall dokumenterat i `docs/cosign_logg.md`.
 scan ── publish (main only)
  │
  ├── build image
- ├── trivy scan (CRITICAL/HIGH gate)
+ ├── trivy scan (CRITICAL/HIGH gate, fixable only)
  ├── trivy full report (artifact)
  ├── generate SBOM (artifact)
  └── save image (artifact)

@@ -1,0 +1,7 @@
+FROM python:3.8.19-slim-bullseye
+
+# Keep intentionally vulnerable Flask version but pin compatible dependencies to ensure a stable, reproducible build.
+RUN python -m pip install --no-cache-dir --upgrade "pip<24.1" "setuptools<70" wheel && python -m pip install --no-cache-dir flask==1.0.0 werkzeug==0.16.1 jinja2==2.10.1 itsdangerous==1.1.0 click==7.1.2 markupsafe==2.0.1
+
+COPY app.py /app.py
+CMD ["python", "/app.py"]

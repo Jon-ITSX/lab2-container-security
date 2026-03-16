@@ -1,0 +1,15 @@
+# Cosign keys — never include private key in build context
+cosign.key
+cosign.pub
+
+# Git and repo metadata
+.git
+.gitignore
+
+# Documentation and reports — not needed in the image
+*.md
+scan-before.txt
+scan-after.txt
+sbom.json
+screenshots/
+policies/
