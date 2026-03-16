@@ -29,7 +29,7 @@ Non-root-användare i `Dockerfile.hardened`, inga onödiga paket installerade, o
 `Dockerfile.hardened` använder ett builder-steg för att installera Python-beroenden och ett separat runtime-steg som enbart kopierar de färdiga paketen. pip och build-verktyg når aldrig slutbilden — de kan inte utnyttjas av en angripare som bryter sig in i containern. `.dockerignore` säkerställer att `cosign.key`, dokumentation och repo-metadata aldrig inkluderas i build-contexten, vilket eliminerar risken att känsliga filer råkar hamna i imagen.
 
 ### Reproducerbarhet
-Explicita image-taggar på patch-nivå och pinnade Python-beroenden i `requirements.txt` garanterar att exakt samma komponentuppsättning byggs varje gång. `latest` och lösa versionsintervall ger icke-deterministiska byggen där säkerhetsläget kan förändras utan att koden ändras.
+Explicita image-taggar på patch-nivå och pinnade Python-beroenden i `requirements.txt` garanterar att exakt samma komponentuppsättning byggs varje gång. `latest` och lösa versionsintervall ger icke-deterministiska byggen där säkerhetsläget kan förändras utan att koden ändras. Samma princip gäller för GitHub Actions-runners — pipelinen använder `ubuntu-24.04` i stället för `ubuntu-latest` för att garantera ett känt och förutsägbart exekveringsmiljö. En uppgradering av runner-OS ska vara ett medvetet val, inte en tyst bieffekt av att GitHub byter vad `latest` pekar på.
 
 ### Shift-left
 Trivy-scanning körs mot imagen direkt efter bygge — inte som ett sent steg i en deploy-pipeline. Ju tidigare ett fynd identifieras, desto billigare är det att åtgärda. En CRITICAL i baseline som blockerar merge är billigare än samma CRITICAL som hittas i produktion.

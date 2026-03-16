@@ -59,7 +59,7 @@ Appen exponeras på `http://localhost:5000`.
 
 ---
 
-## Trivy-scanning (G-krav)
+## Trivy-scanning
 
 ### Baseline – sårbar image
 
@@ -73,7 +73,7 @@ Resultat (från `docs/scan-before.txt`):
 - OS-paket: 228 vulnerabilities (UNKNOWN: 5, LOW: 114, MEDIUM: 73, HIGH: 31, CRITICAL: 5)
 - Python-paket: 21 vulnerabilities (LOW: 3, MEDIUM: 12, HIGH: 6)
 
-### Efter hardening – härdad image
+### Efter härdning – härdad image
 
 ```bash
 trivy image lab2-hardened
@@ -87,20 +87,20 @@ Resultat (från `docs/scan-after.txt`):
 
 ### Jämförelse
 
-| Kategori | Före | Efter | Minskning |
-|----------|------|-------|-----------|
-| HIGH (OS) | 31 | 2 | −94 % |
-| HIGH (Python) | 6 | 0 | −100 % |
-| CRITICAL (OS) | 5 | 2 | −60 % |
-| Totalt (alla) | 249 | 116 | −53 % |
+| Kategori      | Före | Efter | Minskning |
+|---------------|------|-------|-----------|
+| HIGH (OS)     | 31   | 2     | −94 %     |
+| HIGH (Python) | 6    | 0     | −100 %    |
+| CRITICAL (OS) | 5    | 2     | −60 %     |
+| Totalt (alla) | 249  | 116   | −53 %     |
 
 ---
 
-## Hardening (G-krav)
+## Härdning
 
 `Dockerfile.hardened` använder ett **multi-stage build** med ett builder-steg och ett runtime-steg:
 
-**Builder-steg**
+**Build-steg**
 - Installerar Python-beroenden med `pip install --prefix` till en isolerad katalog
 - pip och build-verktyg stannar i builder-steget och når aldrig runtime-imagen
 
@@ -117,7 +117,7 @@ Resultat (från `docs/scan-after.txt`):
 
 ---
 
-## SBOM (G-krav)
+## SBOM
 
 ```bash
 trivy image --format cyclonedx --output sbom.json lab2-hardened
@@ -128,37 +128,30 @@ trivy image --format cyclonedx --output sbom.json lab2-hardened
 
 ---
 
-## Gatekeeper / OPA Policies (VG)
+## Gatekeeper / OPA Policies
 
 Policies deployas i Mission Control → Gatekeeper Lab i namespace `sidestep-error`.
 
 ### Valda policies
 
-| Policy | ConstraintTemplate | Constraint | Syfte |
-|--------|--------------------|------------|-------|
-| Require Labels | `require-labels-template.yaml` | `require-app-label.yaml` | Pods måste ha `app`-label för spårbarhet |
-| Block :latest Tag | `block-latest-tag-template.yaml` | `block-latest-tag.yaml` | Blockerar `:latest` och saknad tagg |
-| Require Resource Limits | `require-resource-limits-template.yaml` | `require-resource-limits.yaml` | Kräver `cpu` och `memory` limits |
+| Policy                  | ConstraintTemplate                      | Constraint                     | Syfte                                    |
+|-------------------------|-----------------------------------------|--------------------------------|------------------------------------------|
+| Require Labels          | `require-labels-template.yaml`          | `require-app-label.yaml`       | Pods måste ha `app`-label för spårbarhet |
+| Block :latest Tag       | `block-latest-tag-template.yaml`        | `block-latest-tag.yaml`        | Blockerar `:latest` och saknad tagg      |
+| Require Resource Limits | `require-resource-limits-template.yaml` | `require-resource-limits.yaml` | Kräver `cpu` och `memory` limits         |
 
 Extra: `require-team-label.yaml` kräver även `team`-label.
 
-### Applicera via kubectl
+### Deployment
 
-```bash
-kubectl apply -f policies/require-labels-template.yaml
-kubectl apply -f policies/require-app-label.yaml
-kubectl apply -f policies/block-latest-tag-template.yaml
-kubectl apply -f policies/block-latest-tag.yaml
-kubectl apply -f policies/require-resource-limits-template.yaml
-kubectl apply -f policies/require-resource-limits.yaml
-```
+Policies deployades via **Mission Control → Gatekeeper Lab** med ett klick per policy till namespace `sidestep-error`. YAML-filerna i `policies/` är inkluderade i repot som dokumentation och referens — de visar den underliggande ConstraintTemplate- och Constraint-strukturen som Gatekeeper använder.
 
 ### Verifiering
 
 - [x] Bad Pod ger violations (screenshot: `screenshots/gatekeeper-deny.png`)
 - [x] Hardened Pod passerar (screenshot: `screenshots/gatekeeper-pass.png`)
 
-> **Notering:** Varningen `[no-default-sa] Using the default service account is not allowed` kommer från en aktiv klusterpolicy, inte från egna policies. Sätt `serviceAccountName` i Pod-spec för att åtgärda den.
+> **Notering:** Mission Controls delade kluster har en förinstallerad policy som förbjuder användning av `default` ServiceAccount. Det är en klusterövergripande regel som gäller alla studenter — inte en av de tre policies vi själva deployade. För att undvika varningen skapar man en dedikerad ServiceAccount i sitt namespace och anger den explicit i Pod-spec med `serviceAccountName`. Se Pod-manifestet nedan.
 
 ### Rekommenderat Pod-manifest
 
@@ -193,7 +186,7 @@ spec:
 
 ---
 
-## Cosign-signering (VG)
+## Cosign-signering
 
 ```bash
 cosign generate-key-pair
@@ -237,21 +230,21 @@ publish:
 
 ### Secrets som krävs
 
-| Secret | Beskrivning |
-|--------|-------------|
-| `GCP_SA_KEY` | Service account-nyckel för GCR-autentisering |
-| `COSIGN_PRIVATE_KEY` | `cosign.key` base64-kodad: `base64 -w0 cosign.key` |
-| `COSIGN_PASSWORD` | Lösenordet som sattes vid `cosign generate-key-pair` |
+| Secret               | Beskrivning                                          |
+|----------------------|------------------------------------------------------|
+| `GCP_SA_KEY`         | Service account-nyckel för GCR-autentisering         |
+| `COSIGN_PRIVATE_KEY` | `cosign.key` base64-kodad: `base64 -w0 cosign.key`   |
+| `COSIGN_PASSWORD`    | Lösenordet som sattes vid `cosign generate-key-pair` |
 
 ---
 
-## Reflektion (G-krav)
+## Reflektion
 
 Se [docs/reflection.md](docs/reflection.md).
 
 ---
 
-## Säkerhetsstrategi (VG)
+## Säkerhetsstrategi
 
 Se [docs/security_strategy.md](docs/security_strategy.md).
 
@@ -289,6 +282,22 @@ lab2-container-security/
 │   └── security_strategy.md
 └── README.md
 ```
+
+---
+
+## Bilagor
+
+### Gatekeeper – Bad Pod ger violation
+
+![Gatekeeper blockerar Bad Pod](screenshots/gatekeeper-deny.png)
+
+### Gatekeeper – Hardened Pod passerar
+
+![Gatekeeper godkänner Hardened Pod](screenshots/gatekeeper-pass.png)
+
+### CI/CD-pipeline – grön körning
+
+![Pipeline med scan och publish](screenshots/pipeline-green.png)
 
 ---
 
