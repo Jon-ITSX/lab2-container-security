@@ -4,7 +4,7 @@
 # Job chain:  scan ── publish (main only)
 #              │
 #              └── build image
-#                  trivy scan (CRITICAL/HIGH gate)
+#                  trivy scan (CRITICAL/HIGH gate, fixable only)
 #                  trivy full report (artifact)
 #                  generate SBOM (artifact)
 #                  save image (artifact)
@@ -66,7 +66,7 @@ jobs:
   # Two-pass Trivy approach (same pattern as Lab 1):
   #   Pass 1: full report (all severities) uploaded as artifact — always runs
   #           so the report is available even when the gate fails.
-  #   Pass 2: CRITICAL/HIGH gate with exit-code 1 — blocks publish if found.
+  #   Pass 2: CRITICAL/HIGH gate (--ignore-unfixed) — blocks only on fixable CVEs.
   #
   # SBOM is generated here and archived as a pipeline artifact, decoupled
   # from the push step so it exists regardless of whether publish runs.
@@ -110,14 +110,19 @@ jobs:
           name: trivy-report-${{ github.run_id }}
           path: trivy-report.txt
 
-      # Pass 2: blocking gate — pipeline fails here if CRITICAL or HIGH found.
-      - name: Trivy scan — CRITICAL/HIGH gate
+      # Pass 2: blocking gate — fails only on CRITICAL/HIGH where a fix exists.
+      # --ignore-unfixed excludes CVEs with no available patch (status: affected
+      # or will_not_fix without a fixed version). Blocking on unfixable CVEs
+      # would halt the pipeline indefinitely with no actionable remediation.
+      # Full report above still captures all findings for manual review.
+      - name: Trivy scan — CRITICAL/HIGH gate (fixable only)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           format: table
           exit-code: "1"
           severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
       # SBOM is generated and archived here, independent of whether the image
       # is eventually pushed — provides a record even on PR builds.
