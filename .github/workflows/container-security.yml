@@ -55,7 +55,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY: europe-north1-docker.pkg.dev/chas-devsecops-2026/sidestep-error
+  REGISTRY: europe-north1-docker.pkg.dev/chas-devsecops-2026/student-apps
   IMAGE_NAME: jonitsx-app
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
