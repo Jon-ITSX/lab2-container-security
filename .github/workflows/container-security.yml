@@ -55,7 +55,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGISTRY: gcr.io/chas-devsecops-2026
+  REGISTRY: gcr.io/chas-devsecops-2026/sidestep-error
   IMAGE_NAME: jonitsx-app
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
