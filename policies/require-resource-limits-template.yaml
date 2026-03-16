@@ -1,0 +1,45 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequireresourcelimits
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireResourceLimits
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequireresourcelimits
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.containers[_]
+          resources := object.get(c, "resources", {})
+          limits := object.get(resources, "limits", {})
+          not object.get(limits, "cpu", "")
+          msg := sprintf("Container '%s' saknar resources.limits.cpu", [c.name])
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.containers[_]
+          resources := object.get(c, "resources", {})
+          limits := object.get(resources, "limits", {})
+          not object.get(limits, "memory", "")
+          msg := sprintf("Container '%s' saknar resources.limits.memory", [c.name])
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.initContainers[_]
+          resources := object.get(c, "resources", {})
+          limits := object.get(resources, "limits", {})
+          not object.get(limits, "cpu", "")
+          msg := sprintf("InitContainer '%s' saknar resources.limits.cpu", [c.name])
+        }
+
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.initContainers[_]
+          resources := object.get(c, "resources", {})
+          limits := object.get(resources, "limits", {})
+          not object.get(limits, "memory", "")
+          msg := sprintf("InitContainer '%s' saknar resources.limits.memory", [c.name])
+        }

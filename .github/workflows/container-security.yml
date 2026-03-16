@@ -1,0 +1,221 @@
+# =============================================================================
+# CONTAINER SECURITY PIPELINE
+#
+# Job chain:  scan ── publish (main only)
+#              │
+#              └── build image
+#                  trivy scan (CRITICAL/HIGH gate)
+#                  trivy full report (artifact)
+#                  generate SBOM (artifact)
+#                  save image (artifact)
+#
+#              publish:
+#                  load image
+#                  push to GCR
+#                  sign with Cosign → Rekor transparency log
+#                  verify signature
+#
+# Triggers:
+#   - pull_request → main : runs scan only (no push/sign)
+#   - push → main         : runs full chain including publish
+#   - workflow_dispatch   : manual full-chain run
+#
+# Security design:
+#   - permissions: contents: read — no write access needed
+#   - concurrency lock prevents two publish jobs running in parallel,
+#     which could produce conflicting signatures on the same digest.
+#     cancel-in-progress: false ensures a running publish is never
+#     interrupted mid-signing.
+#   - COSIGN_PRIVATE_KEY is stored as a GitHub Secret (base64-encoded),
+#     written to a temp file for signing and deleted immediately after.
+#     The private key never appears in logs or artifacts.
+#   - GCP_SA_KEY follows the same pattern as Lab 1 — stored as GitHub
+#     Secret, injected at runtime, never present in the repository.
+#   - cosign.pub is committed to the repo (public keys are safe to share)
+#     and used directly for signature verification.
+# =============================================================================
+
+name: Container Security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Prevent concurrent publish jobs on the same branch.
+# cancel-in-progress: false protects a running sign/push from being
+# interrupted, which could leave an unsigned image in the registry.
+concurrency:
+  group: container-security-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: gcr.io/chas-devsecops-2026
+  IMAGE_NAME: jonitsx-app
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # SCAN — builds the hardened image locally and runs security checks.
+  #
+  # Two-pass Trivy approach (same pattern as Lab 1):
+  #   Pass 1: full report (all severities) uploaded as artifact — always runs
+  #           so the report is available even when the gate fails.
+  #   Pass 2: CRITICAL/HIGH gate with exit-code 1 — blocks publish if found.
+  #
+  # SBOM is generated here and archived as a pipeline artifact, decoupled
+  # from the push step so it exists regardless of whether publish runs.
+  #
+  # The built image is saved with `docker save` and uploaded as an artifact
+  # so the publish job can load and push the exact same image — no rebuild,
+  # no risk of a different digest being signed than the one that was scanned.
+  # ---------------------------------------------------------------------------
+  scan:
+    name: Build & Scan
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build hardened image
+        run: |
+          docker build \
+            -f Dockerfile.hardened \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            .
+
+      # Pass 1: upload full report regardless of outcome so it is always
+      # available for review — mirrors the artifact pattern from Lab 1.
+      - name: Trivy scan — full report (artifact)
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          output: trivy-report.txt
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM,LOW
+
+      - name: Upload Trivy report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report-${{ github.run_id }}
+          path: trivy-report.txt
+
+      # Pass 2: blocking gate — pipeline fails here if CRITICAL or HIGH found.
+      - name: Trivy scan — CRITICAL/HIGH gate
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      # SBOM is generated and archived here, independent of whether the image
+      # is eventually pushed — provides a record even on PR builds.
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: cyclonedx
+          output: sbom-ci.json
+          exit-code: "0"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.run_id }}
+          path: sbom-ci.json
+
+      # Save the exact image that passed scanning so publish loads the same
+      # digest — guarantees that what is signed is what was scanned.
+      - name: Save image as artifact
+        run: |
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            | gzip > image.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ github.run_id }}
+          path: image.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # PUBLISH — pushes, signs and verifies the image.
+  # Only runs on push to main or manual trigger (not on PRs).
+  #
+  # Signing flow:
+  #   1. COSIGN_PRIVATE_KEY (base64) is decoded to a temp file.
+  #   2. `cosign sign --yes` pushes the signature to GCR and records it in
+  #      the Rekor transparency log for external verifiability.
+  #   3. The temp key file is deleted immediately after signing.
+  #   4. Signature is verified against cosign.pub (committed to repo).
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Push & Sign
+    runs-on: ubuntu-latest
+    needs: [scan]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Fail fast if required secrets are absent rather than failing later
+      # with a cryptic authentication error — same pattern as Lab 1.
+      - name: Verify required secrets
+        run: |
+          test -n "${{ secrets.GCP_SA_KEY }}"          || (echo "Missing secret: GCP_SA_KEY"          && exit 1)
+          test -n "${{ secrets.COSIGN_PRIVATE_KEY }}"  || (echo "Missing secret: COSIGN_PRIVATE_KEY"  && exit 1)
+          test -n "${{ secrets.COSIGN_PASSWORD }}"     || (echo "Missing secret: COSIGN_PASSWORD"     && exit 1)
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: image-${{ github.run_id }}
+
+      - name: Load image
+        run: docker load -i image.tar.gz
+
+      - name: Authenticate to GCR
+        uses: docker/login-action@v3
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Push image to GCR
+        run: docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      # COSIGN_PRIVATE_KEY is stored as base64-encoded GitHub Secret.
+      # Decoded to a temp file, used for signing, then deleted immediately.
+      # COSIGN_PASSWORD is passed via env var — never appears as a CLI arg.
+      # --yes uploads to Rekor transparency log without interactive prompt.
+      - name: Sign image
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "${{ secrets.COSIGN_PRIVATE_KEY }}" | base64 -d > /tmp/cosign.key
+          cosign sign --key /tmp/cosign.key --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          rm -f /tmp/cosign.key
+
+      # Verifies against cosign.pub committed to the repo.
+      # Public keys are safe to version-control and serve as the
+      # authoritative verification reference for the project.
+      - name: Verify signature
+        run: |
+          cosign verify --key cosign.pub \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
