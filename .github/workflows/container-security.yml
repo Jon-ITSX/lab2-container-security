@@ -211,6 +211,17 @@ jobs:
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
+      
+        # Debug step to confirm the private key is correctly passed and decodable.
+      - name: Debug cosign key
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+        run: |
+          echo "$COSIGN_PRIVATE_KEY" | base64 -d > /tmp/cosign.key
+          head -1 /tmp/cosign.key
+          tail -1 /tmp/cosign.key
+          wc -l /tmp/cosign.key
+          rm -f /tmp/cosign.key
 
       # COSIGN_PRIVATE_KEY is stored as base64-encoded GitHub Secret.
       # Decoded to a temp file, used for signing, then deleted immediately.
