@@ -1,5 +1,7 @@
 # Lab 2 – Container Security
 
+![Terraform CI](https://github.com/Jon-ITSX/lab1-terraform/actions/workflows/terraform.yml/badge.svg)
+
 Praktiskt flöde för container-hardening: bygg en sårbar baseline, scanna med Trivy, härda imagen, verifiera förbättringen och enforcea säkerhetspolicies i Kubernetes med OPA Gatekeeper.
 
 ## Vad projektet demonstrerar
